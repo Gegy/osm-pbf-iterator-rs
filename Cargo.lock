@@ -1,0 +1,74 @@
+[[package]]
+name = "byteorder"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "cc"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "flate2"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)",
+ "miniz-sys 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "libc"
+version = "0.2.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "miniz-sys"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "cc 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "osm-pbf-iterator"
+version = "0.1.0"
+dependencies = [
+ "byteorder 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flate2 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf-codegen-pure 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "protobuf"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "protobuf-codegen"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "protobuf 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "protobuf-codegen-pure"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "protobuf 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "protobuf-codegen 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[metadata]
+"checksum byteorder 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "74c0b906e9446b0a2e4f760cdb3fa4b2c48cdc6db8766a845c54b6ff063fd2e9"
+"checksum cc 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)" = "2119ea4867bd2b8ed3aecab467709720b2d55b1bcfe09f772fd68066eaf15275"
+"checksum flate2 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "9fac2277e84e5e858483756647a9d0aa8d9a2b7cba517fd84325a0aaa69a0909"
+"checksum libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)" = "b685088df2b950fccadf07a7187c8ef846a959c142338a48f9dc0b94517eb5f1"
+"checksum miniz-sys 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "609ce024854aeb19a0ef7567d348aaa5a746b32fb72e336df7fcc16869d7e2b4"
+"checksum protobuf 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7fec4b8f0fa26c52d29c66e93e8624aad859458ec5e5d4f6ddf923954293436a"
+"checksum protobuf-codegen 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "9cbd14b640510ad5a4339d8f78ab913a6da1f7b384400fa113616bf216cbdfe8"
+"checksum protobuf-codegen-pure 2.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "7fcc3085b0644bcad72ea33f174f267c24e558e56a97115e3ef31a4483581a1b"

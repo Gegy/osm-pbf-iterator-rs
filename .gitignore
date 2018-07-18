@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+.idea/
+*.iml
+
+inputs/
+src/protos/osm.rs
+src/protos/file.rs

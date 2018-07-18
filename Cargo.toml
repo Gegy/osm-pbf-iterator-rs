@@ -1,0 +1,12 @@
+[package]
+name = "osm-pbf-iterator"
+version = "0.1.0"
+authors = ["gegy1000 <gegy1000@gmail.com>"]
+
+[dependencies]
+protobuf = "2.0.3"
+byteorder = "1.2.3"
+flate2 = "1.0"
+
+[build-dependencies]
+protobuf-codegen-pure = "2.0.3"
