@@ -1,6 +1,5 @@
-use ::OsmParseError;
+use ::PbfParseError;
 use flate2;
-use parser::Parser;
 use protos;
 use std::convert::TryFrom;
 use std::io::Read;
@@ -14,56 +13,57 @@ pub struct Blob {
 }
 
 impl Blob {
-    pub fn parse(parser: &mut Parser) -> Result<Blob, OsmParseError> {
-        let header = Blob::parse_header(parser)?;
-        let blob = Blob::parse_blob(parser, &header)?;
+    pub fn parse(reader: &mut Read) -> Result<Blob, PbfParseError> {
+        let header = Blob::parse_header(reader)?;
+        let blob = Blob::parse_blob(reader, &header)?;
         let data_type = BlobType::try_from(header.get_field_type())?;
         let data = parse_data(blob)?;
         Ok(Blob { data_type, data })
     }
 
-    fn parse_header(parser: &mut Parser) -> Result<protos::file::BlobHeader, OsmParseError> {
-        let header_length = parser.read_u32()?;
+    fn parse_header(reader: &mut Read) -> Result<protos::file::BlobHeader, PbfParseError> {
+        use byteorder::{BigEndian, ReadBytesExt};
+        let header_length = reader.read_u32::<BigEndian>()?;
         if header_length >= MAX_HEADER_LENGTH {
-            return Err(OsmParseError::InvalidHeaderLength(header_length));
+            return Err(PbfParseError::InvalidHeaderLength(header_length));
         }
-        parser.read_message(header_length as usize)
+        ::read_message(reader, header_length as usize)
     }
 
-    fn parse_blob(parser: &mut Parser, header: &protos::file::BlobHeader) -> Result<protos::file::Blob, OsmParseError> {
+    fn parse_blob(reader: &mut Read, header: &protos::file::BlobHeader) -> Result<protos::file::Blob, PbfParseError> {
         let data_length = header.get_datasize() as u32;
         if data_length > MAX_BODY_LENGTH {
-            return Err(OsmParseError::InvalidBodyLength(data_length));
+            return Err(PbfParseError::InvalidBodyLength(data_length));
         }
-        parser.read_message(data_length as usize)
+        ::read_message(reader,data_length as usize)
     }
 }
 
-fn parse_data(blob: protos::file::Blob) -> Result<Vec<u8>, OsmParseError> {
+fn parse_data(blob: protos::file::Blob) -> Result<Vec<u8>, PbfParseError> {
     if blob.has_zlib_data() {
         let mut deflated = vec![0u8];
         let mut decoder = flate2::read::ZlibDecoder::new(blob.get_zlib_data());
         decoder.read_to_end(&mut deflated)?;
         Ok(deflated)
     } else {
-        Err(OsmParseError::InvalidBlobFormat)
+        Err(PbfParseError::InvalidBlobFormat)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum BlobType {
     HEADER,
     DATA,
 }
 
 impl<'a> TryFrom<&'a str> for BlobType {
-    type Error = OsmParseError;
+    type Error = PbfParseError;
 
-    fn try_from(value: &'a str) -> Result<Self, OsmParseError> {
+    fn try_from(value: &'a str) -> Result<Self, PbfParseError> {
         match value {
             "OSMHeader" => Ok(BlobType::HEADER),
             "OSMData" => Ok(BlobType::DATA),
-            _ => Err(OsmParseError::InvalidBlobType)
+            _ => Err(PbfParseError::InvalidBlobType)
         }
     }
 }
