@@ -5,11 +5,11 @@ extern crate byteorder;
 extern crate flate2;
 extern crate protobuf;
 
+use protos::osm::{HeaderBlock, PrimitiveBlock, PrimitiveGroup};
 use reader::{BlobReader, OsmReader};
 use std::convert::From;
 use std::fs::File;
 use std::io::Read;
-use protos::osm::{PrimitiveBlock, HeaderBlock};
 
 mod protos;
 mod blob;
@@ -26,8 +26,21 @@ fn main() {
 pub struct Visitor;
 
 impl visitor::OsmVisitor for Visitor {
-    fn visit_block(&mut self, block: &PrimitiveBlock) -> Result<(), PbfParseError> {
-        println!("found block {:?}", block);
+    fn visit_block(&mut self, _block: &PrimitiveBlock) -> Result<(), PbfParseError> {
+        Ok(())
+    }
+
+    fn visit_group(&mut self, _group: &PrimitiveGroup) -> Result<(), PbfParseError> {
+        Ok(())
+    }
+
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
+        println!("found node with id {} at {} {}", id, latitude, longitude);
+        Ok(())
+    }
+
+    fn visit_way(&mut self, id: i64, refs: &[i64]) -> Result<(), PbfParseError> {
+        println!("found way with id {} and {} nodes", id, refs.len());
         Ok(())
     }
 
