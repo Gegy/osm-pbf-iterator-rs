@@ -5,8 +5,9 @@ extern crate byteorder;
 extern crate flate2;
 extern crate protobuf;
 
-use protos::osm::{HeaderBlock, PrimitiveBlock, PrimitiveGroup};
-use reader::{BlobReader, OsmReader};
+use osm::OsmReader;
+use protos::osm::HeaderBlock;
+use reader::BlobReader;
 use std::convert::From;
 use std::fs::File;
 use std::io::Read;
@@ -15,6 +16,7 @@ mod protos;
 mod blob;
 mod visitor;
 mod reader;
+mod osm;
 
 fn main() {
     let mut input_file = File::open("inputs/antarctica-latest.osm.pbf").expect("failed to open input file");
@@ -26,21 +28,35 @@ fn main() {
 pub struct Visitor;
 
 impl visitor::OsmVisitor for Visitor {
-    fn visit_block(&mut self, _block: &PrimitiveBlock) -> Result<(), PbfParseError> {
+    fn visit_block(&mut self, _lat_offset: i64, _lon_offset: i64, _granularity: i32, _date_granularity: i32) -> Result<(), PbfParseError> {
         Ok(())
     }
 
-    fn visit_group(&mut self, _group: &PrimitiveGroup) -> Result<(), PbfParseError> {
+    fn visit_string_table(&mut self, _strings: &Vec<&str>) -> Result<(), PbfParseError> {
+        Ok(())
+    }
+
+    fn end_block(&mut self) -> Result<(), PbfParseError> {
+        Ok(())
+    }
+
+    fn visit_group(&mut self) -> Result<(), PbfParseError> {
+        Ok(())
+    }
+
+    fn end_group(&mut self) -> Result<(), PbfParseError> {
         Ok(())
     }
 
     fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
-        println!("found node with id {} at {} {}", id, latitude, longitude);
+//        println!("found node with id {} at {} {}", id, latitude, longitude);
         Ok(())
     }
 
-    fn visit_way(&mut self, id: i64, refs: &[i64]) -> Result<(), PbfParseError> {
-        println!("found way with id {} and {} nodes", id, refs.len());
+    fn visit_way(&mut self, id: i64, refs: &[i64], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
+        if !tags.is_empty() {
+            println!("found way with id {} and tags: {:?}", id, tags);
+        }
         Ok(())
     }
 
