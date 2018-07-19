@@ -7,6 +7,7 @@ use std::io::Read;
 const MAX_HEADER_LENGTH: u32 = 64 * 1024;
 const MAX_BODY_LENGTH: u32 = 32 * 1024 * 1024;
 
+#[derive(Debug)]
 pub struct Blob {
     pub data_type: BlobType,
     pub data: Vec<u8>,
@@ -35,13 +36,13 @@ impl Blob {
         if data_length > MAX_BODY_LENGTH {
             return Err(PbfParseError::InvalidBodyLength(data_length));
         }
-        ::read_message(reader,data_length as usize)
+        ::read_message(reader, data_length as usize)
     }
 }
 
 fn parse_data(blob: protos::file::Blob) -> Result<Vec<u8>, PbfParseError> {
     if blob.has_zlib_data() {
-        let mut deflated = vec![0u8];
+        let mut deflated: Vec<u8> = vec![];
         let mut decoder = flate2::read::ZlibDecoder::new(blob.get_zlib_data());
         decoder.read_to_end(&mut deflated)?;
         Ok(deflated)
