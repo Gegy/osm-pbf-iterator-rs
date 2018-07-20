@@ -1,8 +1,8 @@
 use ::PbfParseError;
 use blob::{Blob, BlobType};
-use protos::osm::{DenseNodes, HeaderBlock, Node, PrimitiveBlock, PrimitiveGroup, Relation, Relation_MemberType, StringTable, Way};
+use protos::osm::{DenseNodes, HeaderBlock, Info, Node, PrimitiveBlock, PrimitiveGroup, Relation, Relation_MemberType, StringTable, Way};
 use reader::BlobReader;
-use std::collections::HashMap;
+use std::mem;
 use std::str;
 use visitor::{BlobVisitor, OsmVisitor};
 
@@ -54,6 +54,7 @@ impl<'a> OsmBlobVisitor<'a> {
             let latitude = parser.get_lat(node.get_lat());
             let longitude = parser.get_lon(node.get_lon());
             self.delegate.visit_node(node.get_id(), latitude, longitude)?;
+            self.visit_info(node.get_info())?;
         }
         Ok(())
     }
@@ -61,32 +62,88 @@ impl<'a> OsmBlobVisitor<'a> {
     fn visit_ways(&mut self, parser: &OsmBlockParser, ways: &[Way]) -> Result<(), PbfParseError> {
         for way in ways {
             let tags = parser.parse_tags(way.get_keys(), way.get_vals());
-            self.delegate.visit_way(way.get_id(), way.get_refs(), &tags)?;
+
+            let mut nodes: Vec<NodeReference> = unsafe { vec![mem::uninitialized(); way.get_refs().len()] };
+            let mut current_node_id: i64 = 0;
+            for (i, off_id) in way.get_refs().iter().enumerate() {
+                current_node_id += *off_id;
+                nodes[i] = NodeReference { id: current_node_id };
+            }
+
+            self.delegate.visit_way(way.get_id(), &nodes, &tags)?;
+            self.visit_info(way.get_info())?;
         }
+
         Ok(())
     }
 
     fn visit_relations(&mut self, parser: &OsmBlockParser, relations: &[Relation]) -> Result<(), PbfParseError> {
-        for relation in relations {}
+        for relation in relations {
+            let tags = parser.parse_tags(relation.get_keys(), relation.get_vals());
+
+            let types = relation.get_types();
+            let roles = relation.get_roles_sid();
+
+            let mut members: Vec<MemberReference> = unsafe { vec![mem::uninitialized(); relation.get_memids().len()] };
+            let mut current_member_id: i64 = 0;
+
+            for (i, off_id) in relation.get_memids().iter().enumerate() {
+                current_member_id += *off_id;
+                let entity_type = OsmEntityType::from(types[i]);
+                let role_sid = roles[i];
+                members[i] = MemberReference { id: current_member_id, entity_type, role_sid };
+            }
+
+            self.delegate.visit_relation(relation.get_id(), &members, &tags)?;
+            self.visit_info(relation.get_info())?;
+        }
+
         Ok(())
     }
 
     fn visit_dense_nodes(&mut self, parser: &OsmBlockParser, dense: &DenseNodes) -> Result<(), PbfParseError> {
+        let info = dense.get_denseinfo();
+
         let mut current_id: i64 = 0;
         let mut current_lat: i64 = 0;
         let mut current_lon: i64 = 0;
+        let mut current_timestamp: i64 = 0;
+        let mut current_changeset: i64 = 0;
+        let mut current_uid: i32 = 0;
+        let mut current_user_sid: i32 = 0;
 
-        let coord_iter = dense.get_lat().iter().zip(dense.get_lon());
-        for (off_id, (off_lat, off_lon)) in dense.get_id().iter().zip(coord_iter) {
-            current_id += off_id;
-            current_lat += off_lat;
-            current_lon += off_lon;
-            let latitude = parser.get_lat(current_lat);
-            let longitude = parser.get_lon(current_lon);
-            self.delegate.visit_node(current_id, latitude, longitude)?;
+        let ids = dense.get_id();
+        let lats = dense.get_lat();
+        let lons = dense.get_lon();
+
+        let versions = info.get_version();
+        let timestamps = info.get_timestamp();
+        let changesets = info.get_changeset();
+        let uids = info.get_uid();
+        let user_sids = info.get_user_sid();
+        let visibility = info.get_visible();
+
+        for i in 0..ids.len() {
+            current_id += ids[i];
+            current_lat += lats[i];
+            current_lon += lons[i];
+            current_timestamp += timestamps[i];
+            current_changeset += changesets[i];
+            current_uid += uids[i];
+            current_user_sid += user_sids[i];
+
+            self.delegate.visit_node(current_id, parser.get_lat(current_lat), parser.get_lon(current_lon))?;
+
+            // TODO: Check what this actually means and whether default should be true
+            let visible = if i < visibility.len() { visibility[i] } else { true };
+            self.delegate.visit_info(versions[i], current_timestamp, current_changeset, current_uid, current_user_sid as u32, visible)?;
         }
 
         Ok(())
+    }
+
+    fn visit_info(&mut self, info: &Info) -> Result<(), PbfParseError> {
+        self.delegate.visit_info(info.get_version(), info.get_timestamp(), info.get_changeset(), info.get_uid(), info.get_user_sid(), info.get_visible())
     }
 }
 
@@ -160,4 +217,34 @@ fn parse_string_table<'a>(table: &'a StringTable) -> Vec<&'a str> {
         .map(|s| str::from_utf8(s.as_ref()))
         .filter_map(|s| s.ok())
         .collect()
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct NodeReference {
+    id: i64,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct MemberReference {
+    id: i64,
+    entity_type: OsmEntityType,
+    role_sid: i32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum OsmEntityType {
+    Node,
+    Way,
+    Relation,
+}
+
+impl From<Relation_MemberType> for OsmEntityType {
+    fn from(mem_type: Relation_MemberType) -> Self {
+        use protos::osm::Relation_MemberType::*;
+        match mem_type {
+            NODE => OsmEntityType::Node,
+            WAY => OsmEntityType::Way,
+            RELATION => OsmEntityType::Relation,
+        }
+    }
 }

@@ -5,7 +5,7 @@ extern crate byteorder;
 extern crate flate2;
 extern crate protobuf;
 
-use osm::OsmReader;
+use osm::{MemberReference, NodeReference, OsmReader};
 use protos::osm::HeaderBlock;
 use reader::BlobReader;
 use std::convert::From;
@@ -48,15 +48,29 @@ impl visitor::OsmVisitor for Visitor {
         Ok(())
     }
 
-    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
-//        println!("found node with id {} at {} {}", id, latitude, longitude);
+    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64) -> Result<(), PbfParseError> {
         Ok(())
     }
 
-    fn visit_way(&mut self, id: i64, refs: &[i64], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
+    fn visit_way(&mut self, id: i64, _nodes: &[NodeReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
         if !tags.is_empty() {
-            println!("found way with id {} and tags: {:?}", id, tags);
+            if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+                println!("found way with id {} and tags: {:?}", id, tags);
+            }
         }
+        Ok(())
+    }
+
+    fn visit_relation(&mut self, id: i64, members: &[MemberReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
+        if !tags.is_empty() {
+            if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+                println!("found relation with id {} and tags: {:?}", id, tags);
+            }
+        }
+        Ok(())
+    }
+
+    fn visit_info(&mut self, _version: i32, _timestamp: i64, _changeset: i64, _uid: i32, _user_sid: u32, _visible: bool) -> Result<(), PbfParseError> {
         Ok(())
     }
 

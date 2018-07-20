@@ -1,6 +1,7 @@
-use blob::Blob;
 use ::PbfParseError;
-use protos::osm::{PrimitiveBlock, PrimitiveGroup, HeaderBlock};
+use blob::Blob;
+use osm::{MemberReference, NodeReference};
+use protos::osm::{HeaderBlock};
 
 pub trait BlobVisitor {
     fn visit_blob(&mut self, blob: &Blob) -> Result<(), PbfParseError>;
@@ -23,7 +24,11 @@ pub trait OsmVisitor {
 
     fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError>;
 
-    fn visit_way(&mut self, id: i64, refs: &[i64], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError>;
+    fn visit_way(&mut self, id: i64, nodes: &[NodeReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError>;
+
+    fn visit_relation(&mut self, id: i64, members: &[MemberReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError>;
+
+    fn visit_info(&mut self, version: i32, timestamp: i64, changeset: i64, uid: i32, user_sid: u32, visible: bool) -> Result<(), PbfParseError>;
 
     fn visit_header(&mut self, block: &HeaderBlock) -> Result<(), PbfParseError>;
 
