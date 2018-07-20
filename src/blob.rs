@@ -1,8 +1,10 @@
 use ::PbfParseError;
-use flate2;
+use flate2::{Compression, write::ZlibEncoder};
+use flate2::read::ZlibDecoder;
 use protos;
-use std::convert::TryFrom;
-use std::io::Read;
+use protos::file;
+use std::convert::{TryFrom, Into};
+use std::io::{Read, Write};
 
 const MAX_HEADER_LENGTH: u32 = 64 * 1024;
 const MAX_BODY_LENGTH: u32 = 32 * 1024 * 1024;
@@ -21,9 +23,33 @@ impl Blob {
         let data = parse_data(blob)?;
         Ok(Blob { data_type, data })
     }
+
+    pub fn new(data_type: BlobType, data: Vec<u8>) -> Blob {
+        Blob { data_type, data }
+    }
+
+    pub fn write(&self, writer: &mut Write) -> Result<(), PbfParseError> {
+        write_header(writer, &self.data_type, self.data.len())
+    }
 }
 
-fn parse_header(reader: &mut Read) -> Result<protos::file::BlobHeader, PbfParseError> {
+fn write_header(writer: &mut Write, data_type: &BlobType, data_len: usize) -> Result<(), PbfParseError> {
+    use byteorder::{BigEndian, WriteBytesExt};
+    use protobuf::Message;
+
+    let mut header = file::BlobHeader::default();
+    header.set_field_type((*data_type).into());
+    header.set_datasize(data_len as i32);
+
+    let bytes = header.write_to_bytes()?;
+    writer.write_u32::<BigEndian>(bytes.len() as u32)?;
+
+    writer.write_all(&bytes)?;
+
+    Ok(())
+}
+
+fn parse_header(reader: &mut Read) -> Result<file::BlobHeader, PbfParseError> {
     use byteorder::{BigEndian, ReadBytesExt};
     let header_length = reader.read_u32::<BigEndian>()?;
     if header_length >= MAX_HEADER_LENGTH {
@@ -32,7 +58,26 @@ fn parse_header(reader: &mut Read) -> Result<protos::file::BlobHeader, PbfParseE
     ::read_message(reader, header_length as usize)
 }
 
-fn parse_blob(reader: &mut Read, header: &protos::file::BlobHeader) -> Result<protos::file::Blob, PbfParseError> {
+fn write_blob(writer: &mut Write, data: &[u8]) -> Result<(), PbfParseError> {
+    use protobuf::Message;
+
+    let mut deflated: Vec<u8> = Vec::new();
+
+    {
+        let mut encoder = ZlibEncoder::new(&mut deflated, Compression::new(9));
+        encoder.write_all(data)?;
+    }
+
+    let mut blob = file::Blob::default();
+    blob.set_lzma_data(deflated);
+    blob.set_raw_size(data.len() as i32);
+
+    blob.write_to_writer(writer)?;
+
+    Ok(())
+}
+
+fn parse_blob(reader: &mut Read, header: &file::BlobHeader) -> Result<file::Blob, PbfParseError> {
     let data_length = header.get_datasize() as u32;
     if data_length > MAX_BODY_LENGTH {
         return Err(PbfParseError::InvalidBodyLength(data_length));
@@ -42,10 +87,10 @@ fn parse_blob(reader: &mut Read, header: &protos::file::BlobHeader) -> Result<pr
 
 fn parse_data(blob: protos::file::Blob) -> Result<Vec<u8>, PbfParseError> {
     if blob.has_zlib_data() {
-        let mut deflated: Vec<u8> = vec![];
-        let mut decoder = flate2::read::ZlibDecoder::new(blob.get_zlib_data());
-        decoder.read_to_end(&mut deflated)?;
-        Ok(deflated)
+        let mut inflated: Vec<u8> = vec![];
+        let mut decoder = ZlibDecoder::new(blob.get_zlib_data());
+        decoder.read_to_end(&mut inflated)?;
+        Ok(inflated)
     } else {
         Err(PbfParseError::InvalidBlobFormat)
     }
@@ -65,6 +110,15 @@ impl<'a> TryFrom<&'a str> for BlobType {
             "OSMHeader" => Ok(BlobType::HEADER),
             "OSMData" => Ok(BlobType::DATA),
             _ => Err(PbfParseError::InvalidBlobType)
+        }
+    }
+}
+
+impl Into<String> for BlobType {
+    fn into(self) -> String {
+        match self {
+            BlobType::HEADER => "OSMHeader".to_string(),
+            BlobType::DATA => "OSMData".to_string(),
         }
     }
 }

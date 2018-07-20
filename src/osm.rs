@@ -2,11 +2,10 @@ use ::PbfParseError;
 use blob::{Blob, BlobType};
 use protos::osm::{DenseNodes, HeaderBlock, Info, Node, PrimitiveBlock, PrimitiveGroup, Relation, Relation_MemberType, StringTable, Way};
 use reader::BlobReader;
-use std::mem;
 use std::str;
 use visitor::{BlobVisitor, OsmVisitor};
 
-const NANODEGREE_UNIT: f64 = 1e-9;
+pub const NANODEGREE_UNIT: f64 = 1e-9;
 
 pub struct OsmReader<'a> {
     reader: BlobReader<'a>,
@@ -63,14 +62,14 @@ impl<'a> OsmBlobVisitor<'a> {
         for way in ways {
             let tags = parser.parse_tags(way.get_keys(), way.get_vals());
 
-            let mut nodes: Vec<NodeReference> = unsafe { vec![mem::uninitialized(); way.get_refs().len()] };
+            let mut nodes: Vec<NodeReference> = Vec::with_capacity(way.get_refs().len());
             let mut current_node_id: i64 = 0;
-            for (i, off_id) in way.get_refs().iter().enumerate() {
+            for off_id in way.get_refs().iter() {
                 current_node_id += *off_id;
-                nodes[i] = NodeReference { id: current_node_id };
+                nodes.push(NodeReference{ id: current_node_id });
             }
 
-            self.delegate.visit_way(way.get_id(), &nodes, &tags)?;
+            self.delegate.visit_way(way.get_id(), nodes, tags)?;
             self.visit_info(way.get_info())?;
         }
 
@@ -84,17 +83,17 @@ impl<'a> OsmBlobVisitor<'a> {
             let types = relation.get_types();
             let roles = relation.get_roles_sid();
 
-            let mut members: Vec<MemberReference> = unsafe { vec![mem::uninitialized(); relation.get_memids().len()] };
+            let mut members: Vec<MemberReference> = Vec::with_capacity(relation.get_memids().len());
             let mut current_member_id: i64 = 0;
 
             for (i, off_id) in relation.get_memids().iter().enumerate() {
                 current_member_id += *off_id;
                 let entity_type = OsmEntityType::from(types[i]);
                 let role_sid = roles[i];
-                members[i] = MemberReference { id: current_member_id, entity_type, role_sid };
+                members.push(MemberReference { id: current_member_id, entity_type, role_sid });
             }
 
-            self.delegate.visit_relation(relation.get_id(), &members, &tags)?;
+            self.delegate.visit_relation(relation.get_id(), members, tags)?;
             self.visit_info(relation.get_info())?;
         }
 
@@ -169,6 +168,10 @@ impl<'a> BlobVisitor for OsmBlobVisitor<'a> {
         Ok(())
     }
 
+    fn end(&mut self) -> Result<(), PbfParseError> {
+        self.delegate.end()
+    }
+
     fn handle_error(&mut self, error: &PbfParseError) -> bool {
         self.delegate.handle_error(error)
     }
@@ -199,13 +202,12 @@ impl<'a> OsmBlockParser<'a> {
         (self.origin_longitude + lon * self.granularity) as f64 * NANODEGREE_UNIT
     }
 
-    fn parse_tags<'b>(&self, keys: &'b [u32], values: &'b [u32]) -> Vec<(&'b str, &'b str)>
-        where 'a: 'b
+    fn parse_tags(&self, keys: &'a [u32], values: &'a [u32]) -> Vec<(String, String)>
     {
         keys.iter().zip(values)
             .map(|(key, value)| (
-                self.strings[*key as usize],
-                self.strings[*value as usize]
+                self.strings[*key as usize].to_string(),
+                self.strings[*value as usize].to_string()
             ))
             .collect()
     }

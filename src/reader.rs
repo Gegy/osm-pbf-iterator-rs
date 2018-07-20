@@ -25,6 +25,12 @@ impl<'a> BlobReader<'a> {
                 _ => (),
             }
         }
+        match visitor.end() {
+            Err(ref e) => {
+                visitor.handle_error(e);
+            },
+            _ => (),
+        }
     }
 }
 

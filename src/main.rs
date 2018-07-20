@@ -1,5 +1,4 @@
 #![feature(try_from)]
-#![feature(nll)]
 
 extern crate byteorder;
 extern crate flate2;
@@ -11,72 +10,86 @@ use reader::BlobReader;
 use std::convert::From;
 use std::fs::File;
 use std::io::Read;
+use visitor::OsmVisitor;
+use writer::OsmWriterVisitor;
 
 mod protos;
 mod blob;
 mod visitor;
 mod reader;
+mod writer;
 mod osm;
 
+const INPUT_PATH: &str = "inputs/antarctica-latest.osm.pbf";
+const OUTPUT_PATH: &str = "outputs/coastline.osm.pbf";
+
 fn main() {
-    let mut input_file = File::open("inputs/antarctica-latest.osm.pbf").expect("failed to open input file");
+    std::fs::create_dir_all("outputs").expect("failed to create output directory");
+
+    let mut input_file = File::open(INPUT_PATH).expect("failed to open input file");
+    let mut output_file = File::create(OUTPUT_PATH).expect("failed to create output file");
 
     let mut reader = OsmReader::from(BlobReader::from(&mut input_file));
-    reader.accept(&mut Visitor);
+    let mut writer = OsmWriterVisitor::new(&mut output_file);
+    reader.accept(&mut Visitor { parent: &mut writer });
 }
 
-pub struct Visitor;
+pub struct Visitor<'a> {
+    parent: &'a mut OsmVisitor
+}
 
-impl visitor::OsmVisitor for Visitor {
-    fn visit_block(&mut self, _lat_offset: i64, _lon_offset: i64, _granularity: i32, _date_granularity: i32) -> Result<(), PbfParseError> {
-        Ok(())
+impl<'a> OsmVisitor for Visitor<'a> {
+    fn visit_block(&mut self, lat_offset: i64, lon_offset: i64, granularity: i32, date_granularity: i32) -> Result<(), PbfParseError> {
+        self.parent.visit_block(lat_offset, lon_offset, granularity, date_granularity)
     }
 
-    fn visit_string_table(&mut self, _strings: &Vec<&str>) -> Result<(), PbfParseError> {
-        Ok(())
+    fn visit_string_table(&mut self, strings: &Vec<&str>) -> Result<(), PbfParseError> {
+        self.parent.visit_string_table(strings)
     }
 
     fn end_block(&mut self) -> Result<(), PbfParseError> {
-        Ok(())
+        self.parent.end_block()
     }
 
     fn visit_group(&mut self) -> Result<(), PbfParseError> {
-        Ok(())
+        self.parent.visit_group()
     }
 
     fn end_group(&mut self) -> Result<(), PbfParseError> {
-        Ok(())
+        self.parent.end_group()
     }
 
-    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64) -> Result<(), PbfParseError> {
-        Ok(())
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
+        self.parent.visit_node(id, latitude, longitude)
     }
 
-    fn visit_way(&mut self, id: i64, _nodes: &[NodeReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
-        if !tags.is_empty() {
-            if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
-                println!("found way with id {} and tags: {:?}", id, tags);
-            }
+    fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+            self.parent.visit_way(id, nodes, tags)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
-    fn visit_relation(&mut self, id: i64, members: &[MemberReference], tags: &Vec<(&str, &str)>) -> Result<(), PbfParseError> {
-        if !tags.is_empty() {
-            if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
-                println!("found relation with id {} and tags: {:?}", id, tags);
-            }
+    fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+            self.parent.visit_relation(id, members, tags)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
-    fn visit_info(&mut self, _version: i32, _timestamp: i64, _changeset: i64, _uid: i32, _user_sid: u32, _visible: bool) -> Result<(), PbfParseError> {
-        Ok(())
+    fn visit_info(&mut self, version: i32, timestamp: i64, changeset: i64, uid: i32, user_sid: u32, visible: bool) -> Result<(), PbfParseError> {
+        self.parent.visit_info(version, timestamp, changeset, uid, user_sid, visible)
     }
 
     fn visit_header(&mut self, block: &HeaderBlock) -> Result<(), PbfParseError> {
         println!("found header {:?}", block);
-        Ok(())
+        self.parent.visit_header(block)
+    }
+
+    fn end(&mut self) -> Result<(), PbfParseError> {
+        self.parent.end()
     }
 
     fn handle_error(&mut self, error: &PbfParseError) -> bool {

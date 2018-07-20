@@ -4,5 +4,6 @@
 *.iml
 
 inputs/
+outputs/
 src/protos/osm.rs
 src/protos/file.rs
