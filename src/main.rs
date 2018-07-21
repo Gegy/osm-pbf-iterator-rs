@@ -33,8 +33,9 @@ fn main() {
     let mut node_collector = NodeCollectionVisitor::new();
 
     let mut reader = OsmReader::from(BlobReader::from(&mut input_file));
-    reader.accept(&mut node_collector);
 
+    println!("collecting coastline nodes");
+    reader.accept(&mut node_collector);
     println!("collected {} nodes", node_collector.nodes.len());
 
     let mut writer = OsmWriterVisitor::new(&mut output_file);
@@ -71,24 +72,12 @@ pub struct CoastlineVisitor<'a> {
 }
 
 impl<'a> OsmVisitor for CoastlineVisitor<'a> {
-    fn visit_block(&mut self, lat_offset: i64, lon_offset: i64, granularity: i32, date_granularity: i32) -> Result<(), PbfParseError> {
-        self.parent.visit_block(lat_offset, lon_offset, granularity, date_granularity)
-    }
-
-    fn visit_string_table(&mut self, strings: &Vec<&str>) -> Result<(), PbfParseError> {
-        self.parent.visit_string_table(strings)
+    fn visit_block(&mut self, _lat_offset: i64, _lon_offset: i64, _granularity: i32, _date_granularity: i32) -> Result<(), PbfParseError> {
+        Ok(())
     }
 
     fn end_block(&mut self) -> Result<(), PbfParseError> {
         self.parent.end_block()
-    }
-
-    fn visit_group(&mut self) -> Result<(), PbfParseError> {
-        self.parent.visit_group()
-    }
-
-    fn end_group(&mut self) -> Result<(), PbfParseError> {
-        self.parent.end_group()
     }
 
     fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
@@ -120,7 +109,7 @@ impl<'a> OsmVisitor for CoastlineVisitor<'a> {
     }
 
     fn visit_header(&mut self, block: &HeaderBlock) -> Result<(), PbfParseError> {
-        println!("found header {:?}", block);
+//        println!("found header {:?}", block);
         self.parent.visit_header(block)
     }
 

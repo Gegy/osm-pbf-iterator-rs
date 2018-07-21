@@ -12,7 +12,6 @@ use visitor::OsmVisitor;
 const MAX_ENTITY_COUNT: usize = 8000;
 
 pub struct PrimitiveBlockBuilder {
-    strings: ReverseStringTable,
     nodes: Vec<NodeEntity>,
     ways: Vec<WayEntity>,
     relations: Vec<RelationEntity>,
@@ -22,7 +21,6 @@ pub struct PrimitiveBlockBuilder {
 impl PrimitiveBlockBuilder {
     fn new() -> PrimitiveBlockBuilder {
         PrimitiveBlockBuilder {
-            strings: ReverseStringTable::new(),
             nodes: Vec::new(),
             ways: Vec::new(),
             relations: Vec::new(),
@@ -47,11 +45,6 @@ impl PrimitiveBlockBuilder {
         self.complete_if_needed();
     }
 
-    fn append_string(&mut self, string: String) {
-        self.strings.push_string(string);
-        self.complete_if_needed();
-    }
-
     #[inline]
     fn complete_if_needed(&mut self) {
         if self.get_entity_count() >= MAX_ENTITY_COUNT {
@@ -61,6 +54,19 @@ impl PrimitiveBlockBuilder {
 
     fn complete_block(&mut self) {
         let mut groups: Vec<PrimitiveGroup> = Vec::new();
+        let mut strings = ReverseStringTable::new();
+
+        let ways: Vec<WayEntity> = self.ways.drain(ops::RangeFull).collect();
+        let relations: Vec<RelationEntity> = self.relations.drain(ops::RangeFull).collect();
+
+        let tags: Vec<(String, String)> = ways.iter().flat_map(|w| w.tags.clone())
+            .chain(relations.iter().flat_map(|r| r.tags.clone()))
+            .collect();
+
+        for (k, v) in tags {
+            strings.push_string(k.clone());
+            strings.push_string(v.clone());
+        }
 
         let pack_info = build_pack_info(&self.nodes);
 
@@ -73,15 +79,13 @@ impl PrimitiveBlockBuilder {
 
         if !self.ways.is_empty() {
             let mut way_group = PrimitiveGroup::default();
-            let ways = self.ways.drain(ops::RangeFull).collect();
-            way_group.set_ways(protobuf::RepeatedField::from_vec(build_ways(ways, &self.strings)));
+            way_group.set_ways(protobuf::RepeatedField::from_vec(build_ways(ways, &strings)));
             groups.push(way_group);
         }
 
         if !self.relations.is_empty() {
             let mut relation_group = PrimitiveGroup::default();
-            let relations = self.relations.drain(ops::RangeFull).collect();
-            relation_group.set_relations(protobuf::RepeatedField::from_vec(build_relations(relations, &self.strings)));
+            relation_group.set_relations(protobuf::RepeatedField::from_vec(build_relations(relations, &strings)));
             groups.push(relation_group);
         }
 
@@ -93,11 +97,10 @@ impl PrimitiveBlockBuilder {
         block.set_date_granularity(1);
 
         let mut table = StringTable::default();
-        table.set_s(protobuf::RepeatedField::from_vec(self.strings.to_table()));
+        table.set_s(protobuf::RepeatedField::from_vec(strings.to_table()));
         block.set_stringtable(table);
         // TODO: Date granularity
 
-        self.strings.clear();
         self.completed_blocks.push(block);
     }
 
@@ -121,10 +124,9 @@ impl PrimitiveBlockBuilder {
 
 fn build_pack_info(nodes: &Vec<NodeEntity>) -> PackInfo {
     if !nodes.is_empty() {
-        // TODO: Calculate granularity
         let mut lat_offset = i64::MAX;
         let mut lon_offset = i64::MAX;
-        let granularity = 1;
+        let granularity = 100;
         for node in nodes {
             if node.latitude < lat_offset {
                 lat_offset = node.latitude;
@@ -252,7 +254,7 @@ impl<'a> OsmWriterVisitor<'a> {
     }
 
     fn write_completed(&mut self) -> Result<(), PbfParseError> {
-        use protobuf::Message;;
+        use protobuf::Message;
         let completed = self.builder.take_blocks();
         for block in completed {
             let bytes = block.write_to_bytes()?;
@@ -264,13 +266,6 @@ impl<'a> OsmWriterVisitor<'a> {
 }
 
 impl<'a> OsmVisitor for OsmWriterVisitor<'a> {
-    fn visit_string_table(&mut self, strings: &Vec<&str>) -> Result<(), PbfParseError> {
-        for string in strings {
-            self.builder.append_string(string.to_string());
-        }
-        Ok(())
-    }
-
     fn end_block(&mut self) -> Result<(), PbfParseError> {
         self.write_completed()?;
         Ok(())
@@ -358,63 +353,3 @@ impl ReverseStringTable {
             .collect()
     }
 }
-
-//pub struct PrimitiveBlockWriter<'a> {
-//    writer: &'a mut Write,
-//    block: Option<PrimitiveBlock>,
-//    group: Option<PrimitiveGroup>,
-//}
-//
-//impl<'a> PrimitiveBlockWriter<'a> {
-//    fn new(writer: &'a mut Write) -> PrimitiveBlockWriter<'a> {
-//        PrimitiveBlockWriter {
-//            writer,
-//            block: None,
-//            group: None,
-//        }
-//    }
-//
-//    fn start_block(&mut self, lat_offset: i64, lon_offset: i64, granularity: i32, date_granularity: i32) {
-//        let mut block = PrimitiveBlock::default();
-//        block.set_lat_offset(lat_offset);
-//        block.set_lon_offset(lon_offset);
-//        block.set_granularity(granularity);
-//        block.set_date_granularity(date_granularity);
-//        self.block = Some(block);
-//    }
-//
-//    fn end_block(&mut self) -> Result<(), PbfParseError> {
-//        use protobuf::Message;
-//        if let Some(block) = self.block.to_owned() {
-//            let bytes = block.write_to_bytes()?;
-//            let blob = Blob::new(BlobType::DATA, bytes);
-//            blob.write(self.writer)?;
-//            self.writer.flush()?;
-//        }
-//        self.block = None;
-//        Ok(())
-//    }
-//
-//    fn write_string_table(&mut self, strings: Vec<Vec<u8>>) -> Result<(), PbfParseError> {
-//        if let Some(ref mut block) = self.block.as_mut() {
-//            let mut table = StringTable::default();
-//            table.set_s(protobuf::RepeatedField::from_vec(strings));
-//            block.set_stringtable(table);
-//        }
-//        Ok(())
-//    }
-//
-//    fn start_group(&mut self) {
-//        self.group = Some(PrimitiveGroup::default());
-//    }
-//
-//    fn end_group(&mut self) -> Result<(), PbfParseError> {
-//        if let Some(group) = self.group.to_owned() {
-//            if let Some(ref mut block) = self.block.as_mut() {
-//                block.mut_primitivegroup().push(group);
-//            }
-//        }
-//        self.group = None;
-//        Ok(())
-//    }
-//}
