@@ -7,6 +7,7 @@ extern crate protobuf;
 use osm::{MemberReference, NodeReference, OsmReader};
 use protos::osm::HeaderBlock;
 use reader::BlobReader;
+use std::collections::HashSet;
 use std::convert::From;
 use std::fs::File;
 use std::io::Read;
@@ -29,16 +30,47 @@ fn main() {
     let mut input_file = File::open(INPUT_PATH).expect("failed to open input file");
     let mut output_file = File::create(OUTPUT_PATH).expect("failed to create output file");
 
+    let mut node_collector = NodeCollectionVisitor::new();
+
     let mut reader = OsmReader::from(BlobReader::from(&mut input_file));
+    reader.accept(&mut node_collector);
+
+    println!("collected {} nodes", node_collector.nodes.len());
+
     let mut writer = OsmWriterVisitor::new(&mut output_file);
-    reader.accept(&mut Visitor { parent: &mut writer });
+    reader.accept(&mut CoastlineVisitor { parent: &mut writer, nodes: &node_collector.nodes });
 }
 
-pub struct Visitor<'a> {
-    parent: &'a mut OsmVisitor
+pub struct NodeCollectionVisitor {
+    nodes: HashSet<i64>,
 }
 
-impl<'a> OsmVisitor for Visitor<'a> {
+impl NodeCollectionVisitor {
+    fn new() -> NodeCollectionVisitor {
+        NodeCollectionVisitor {
+            nodes: HashSet::new()
+        }
+    }
+}
+
+// TODO: Relation members?
+impl OsmVisitor for NodeCollectionVisitor {
+    fn visit_way(&mut self, _id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+            for node in nodes {
+                self.nodes.insert(node.id);
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct CoastlineVisitor<'a> {
+    parent: &'a mut OsmVisitor,
+    nodes: &'a HashSet<i64>,
+}
+
+impl<'a> OsmVisitor for CoastlineVisitor<'a> {
     fn visit_block(&mut self, lat_offset: i64, lon_offset: i64, granularity: i32, date_granularity: i32) -> Result<(), PbfParseError> {
         self.parent.visit_block(lat_offset, lon_offset, granularity, date_granularity)
     }
@@ -60,7 +92,11 @@ impl<'a> OsmVisitor for Visitor<'a> {
     }
 
     fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
-        self.parent.visit_node(id, latitude, longitude)
+        if self.nodes.contains(&id) {
+            self.parent.visit_node(id, latitude, longitude)
+        } else {
+            Ok(())
+        }
     }
 
     fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {

@@ -1,18 +1,28 @@
 use ::PbfParseError;
 use blob::Blob;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use visitor::BlobVisitor;
 
-pub struct BlobReader<'a> {
-    reader: &'a mut Read,
+pub struct BlobReader<'a, T: 'a + Read + Seek> {
+    reader: &'a mut T,
 }
 
-impl<'a> BlobReader<'a> {
-    pub fn from(reader: &'a mut Read) -> BlobReader<'a> {
+impl<'a, T: 'a + Read + Seek> BlobReader<'a, T> {
+    pub fn from(reader: &'a mut T) -> BlobReader<'a, T> {
         BlobReader { reader }
     }
 
     pub fn accept(&mut self, visitor: &mut BlobVisitor) {
+        match self.try_accept(visitor) {
+            Err(ref e) => {
+                visitor.handle_error(e);
+            }
+            _ => (),
+        }
+    }
+
+    fn try_accept(&mut self, visitor: &mut BlobVisitor) -> Result<(), PbfParseError> {
+        self.reader.seek(SeekFrom::Start(0))?;
         loop {
             let result = parse_blob(self.reader, visitor);
             match result {
@@ -25,12 +35,8 @@ impl<'a> BlobReader<'a> {
                 _ => (),
             }
         }
-        match visitor.end() {
-            Err(ref e) => {
-                visitor.handle_error(e);
-            },
-            _ => (),
-        }
+        visitor.end()?;
+        Ok(())
     }
 }
 

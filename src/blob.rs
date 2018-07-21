@@ -3,7 +3,7 @@ use flate2::{Compression, write::ZlibEncoder};
 use flate2::read::ZlibDecoder;
 use protos;
 use protos::file;
-use std::convert::{TryFrom, Into};
+use std::convert::{Into, TryFrom};
 use std::io::{Read, Write};
 
 const MAX_HEADER_LENGTH: u32 = 64 * 1024;
@@ -29,7 +29,9 @@ impl Blob {
     }
 
     pub fn write(&self, writer: &mut Write) -> Result<(), PbfParseError> {
-        write_header(writer, &self.data_type, self.data.len())
+        write_header(writer, &self.data_type, self.data.len())?;
+        write_blob(writer, &self.data)?;
+        Ok(())
     }
 }
 
@@ -69,8 +71,8 @@ fn write_blob(writer: &mut Write, data: &[u8]) -> Result<(), PbfParseError> {
     }
 
     let mut blob = file::Blob::default();
-    blob.set_lzma_data(deflated);
     blob.set_raw_size(data.len() as i32);
+    blob.set_lzma_data(deflated.to_vec());
 
     blob.write_to_writer(writer)?;
 

@@ -2,17 +2,18 @@ use ::PbfParseError;
 use blob::{Blob, BlobType};
 use protos::osm::{DenseNodes, HeaderBlock, Info, Node, PrimitiveBlock, PrimitiveGroup, Relation, Relation_MemberType, StringTable, Way};
 use reader::BlobReader;
+use std::io::{Read, Seek};
 use std::str;
 use visitor::{BlobVisitor, OsmVisitor};
 
 pub const NANODEGREE_UNIT: f64 = 1e-9;
 
-pub struct OsmReader<'a> {
-    reader: BlobReader<'a>,
+pub struct OsmReader<'a, T: 'a + Read + Seek> {
+    reader: BlobReader<'a, T>,
 }
 
-impl<'a> OsmReader<'a> {
-    pub fn from(reader: BlobReader<'a>) -> OsmReader<'a> {
+impl<'a, T: 'a + Read + Seek> OsmReader<'a, T> {
+    pub fn from(reader: BlobReader<'a, T>) -> OsmReader<'a, T> {
         OsmReader { reader }
     }
 
@@ -66,7 +67,7 @@ impl<'a> OsmBlobVisitor<'a> {
             let mut current_node_id: i64 = 0;
             for off_id in way.get_refs().iter() {
                 current_node_id += *off_id;
-                nodes.push(NodeReference{ id: current_node_id });
+                nodes.push(NodeReference { id: current_node_id });
             }
 
             self.delegate.visit_way(way.get_id(), nodes, tags)?;
@@ -223,14 +224,14 @@ fn parse_string_table<'a>(table: &'a StringTable) -> Vec<&'a str> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct NodeReference {
-    id: i64,
+    pub id: i64,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct MemberReference {
-    id: i64,
-    entity_type: OsmEntityType,
-    role_sid: i32,
+    pub id: i64,
+    pub entity_type: OsmEntityType,
+    pub role_sid: i32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -247,6 +248,17 @@ impl From<Relation_MemberType> for OsmEntityType {
             NODE => OsmEntityType::Node,
             WAY => OsmEntityType::Way,
             RELATION => OsmEntityType::Relation,
+        }
+    }
+}
+
+impl Into<Relation_MemberType> for OsmEntityType {
+    fn into(self) -> Relation_MemberType {
+        use protos::osm::Relation_MemberType::*;
+        match self {
+            OsmEntityType::Node => NODE,
+            OsmEntityType::Way => WAY,
+            OsmEntityType::Relation => RELATION,
         }
     }
 }
