@@ -2,7 +2,7 @@ use ::PbfParseError;
 use blob::{Blob, BlobType};
 use osm::{MemberReference, NANODEGREE_UNIT, NodeReference};
 use protobuf;
-use protos::osm::{DenseNodes, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
+use protos::osm::{DenseNodes, HeaderBlock, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
 use std::collections::HashMap;
 use std::i64;
 use std::io::Write;
@@ -283,6 +283,16 @@ impl<'a> OsmVisitor for OsmWriterVisitor<'a> {
 
     fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
         self.builder.append_relation(id, members, tags);
+        Ok(())
+    }
+
+    fn visit_header(&mut self, block: &HeaderBlock) -> Result<(), PbfParseError> {
+        use protobuf::Message;
+
+        let bytes = block.write_to_bytes()?;
+        let blob = Blob::new(BlobType::HEADER, bytes);
+        blob.write(self.writer)?;
+
         Ok(())
     }
 
