@@ -58,6 +58,7 @@ impl PrimitiveBlockBuilder {
         let mut groups: Vec<PrimitiveGroup> = Vec::new();
         let mut strings = ReverseStringTable::new();
 
+        let nodes: Vec<NodeEntity> = self.nodes.drain(ops::RangeFull).collect();
         let ways: Vec<WayEntity> = self.ways.drain(ops::RangeFull).collect();
         let relations: Vec<RelationEntity> = self.relations.drain(ops::RangeFull).collect();
 
@@ -72,20 +73,19 @@ impl PrimitiveBlockBuilder {
 
         let pack_info = build_pack_info(&self.nodes);
 
-        if !self.nodes.is_empty() {
+        if !nodes.is_empty() {
             let mut node_group = PrimitiveGroup::default();
-            let nodes = self.nodes.drain(ops::RangeFull).collect();
             node_group.set_dense(build_dense_nodes(nodes, &pack_info, self.write_metadata));
             groups.push(node_group);
         }
 
-        if !self.ways.is_empty() {
+        if !ways.is_empty() {
             let mut way_group = PrimitiveGroup::default();
             way_group.set_ways(protobuf::RepeatedField::from_vec(build_ways(ways, &pack_info, &strings, self.write_metadata)));
             groups.push(way_group);
         }
 
-        if !self.relations.is_empty() {
+        if !relations.is_empty() {
             let mut relation_group = PrimitiveGroup::default();
             relation_group.set_relations(protobuf::RepeatedField::from_vec(build_relations(relations, &pack_info, &strings, self.write_metadata)));
             groups.push(relation_group);

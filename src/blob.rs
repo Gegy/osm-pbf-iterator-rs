@@ -29,8 +29,9 @@ impl Blob {
     }
 
     pub fn write(&self, writer: &mut Write) -> Result<(), PbfParseError> {
-        write_header(writer, &self.data_type, self.data.len())?;
-        write_blob(writer, &self.data)?;
+        let blob = build_blob(&self.data)?;
+        write_header(writer, &self.data_type, blob.len())?;
+        write_blob(writer, blob)?;
         Ok(())
     }
 }
@@ -60,7 +61,12 @@ fn parse_header(reader: &mut Read) -> Result<file::BlobHeader, PbfParseError> {
     ::read_message(reader, header_length as usize)
 }
 
-fn write_blob(writer: &mut Write, data: &[u8]) -> Result<(), PbfParseError> {
+fn write_blob(writer: &mut Write, mut data: Vec<u8>) -> Result<(), PbfParseError> {
+    writer.write_all(&mut data)?;
+    Ok(())
+}
+
+fn build_blob(data: &[u8]) -> Result<Vec<u8>, PbfParseError> {
     use protobuf::Message;
 
     let mut deflated: Vec<u8> = Vec::new();
@@ -72,11 +78,9 @@ fn write_blob(writer: &mut Write, data: &[u8]) -> Result<(), PbfParseError> {
 
     let mut blob = file::Blob::default();
     blob.set_raw_size(data.len() as i32);
-    blob.set_lzma_data(deflated.to_vec());
+    blob.set_zlib_data(deflated.to_vec());
 
-    blob.write_to_writer(writer)?;
-
-    Ok(())
+    Ok(blob.write_to_bytes()?)
 }
 
 fn parse_blob(reader: &mut Read, header: &file::BlobHeader) -> Result<file::Blob, PbfParseError> {
