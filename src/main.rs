@@ -4,7 +4,7 @@ extern crate byteorder;
 extern crate flate2;
 extern crate protobuf;
 
-use osm::{MemberReference, NodeReference, OsmReader};
+use osm::{MemberReference, NodeReference, OsmReader, EntityInfo};
 use protos::osm::HeaderBlock;
 use reader::BlobReader;
 use std::collections::HashSet;
@@ -38,7 +38,7 @@ fn main() {
     reader.accept(&mut node_collector);
     println!("collected {} nodes", node_collector.nodes.len());
 
-    let mut writer = OsmWriterVisitor::new(&mut output_file);
+    let mut writer = OsmWriterVisitor::new(&mut output_file, true);
     reader.accept(&mut CoastlineVisitor { parent: &mut writer, nodes: &node_collector.nodes });
 }
 
@@ -56,7 +56,7 @@ impl NodeCollectionVisitor {
 
 // TODO: Relation members?
 impl OsmVisitor for NodeCollectionVisitor {
-    fn visit_way(&mut self, _id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+    fn visit_way(&mut self, _id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, _info: EntityInfo) -> Result<(), PbfParseError> {
         if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
             for node in nodes {
                 self.nodes.insert(node.id);
@@ -80,32 +80,28 @@ impl<'a> OsmVisitor for CoastlineVisitor<'a> {
         self.parent.end_block()
     }
 
-    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) -> Result<(), PbfParseError> {
         if self.nodes.contains(&id) {
-            self.parent.visit_node(id, latitude, longitude)
+            self.parent.visit_node(id, latitude, longitude, info)
         } else {
             Ok(())
         }
     }
 
-    fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+    fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
         if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
-            self.parent.visit_way(id, nodes, tags)
+            self.parent.visit_way(id, nodes, tags, info)
         } else {
             Ok(())
         }
     }
 
-    fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+    fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
         if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
-            self.parent.visit_relation(id, members, tags)
+            self.parent.visit_relation(id, members, tags, info)
         } else {
             Ok(())
         }
-    }
-
-    fn visit_info(&mut self, version: i32, timestamp: i64, changeset: i64, uid: i32, user_sid: u32, visible: bool) -> Result<(), PbfParseError> {
-        self.parent.visit_info(version, timestamp, changeset, uid, user_sid, visible)
     }
 
     fn visit_header(&mut self, block: &HeaderBlock) -> Result<(), PbfParseError> {

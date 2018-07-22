@@ -53,8 +53,8 @@ impl<'a> OsmBlobVisitor<'a> {
         for node in nodes {
             let latitude = parser.get_lat(node.get_lat());
             let longitude = parser.get_lon(node.get_lon());
-            self.delegate.visit_node(node.get_id(), latitude, longitude)?;
-            self.visit_info(node.get_info())?;
+            let info = parser.parse_info(node.get_info());
+            self.delegate.visit_node(node.get_id(), latitude, longitude, info)?;
         }
         Ok(())
     }
@@ -70,8 +70,8 @@ impl<'a> OsmBlobVisitor<'a> {
                 nodes.push(NodeReference { id: current_node_id });
             }
 
-            self.delegate.visit_way(way.get_id(), nodes, tags)?;
-            self.visit_info(way.get_info())?;
+            let info = parser.parse_info(way.get_info());
+            self.delegate.visit_way(way.get_id(), nodes, tags, info)?;
         }
 
         Ok(())
@@ -94,8 +94,8 @@ impl<'a> OsmBlobVisitor<'a> {
                 members.push(MemberReference { id: current_member_id, entity_type, role_sid });
             }
 
-            self.delegate.visit_relation(relation.get_id(), members, tags)?;
-            self.visit_info(relation.get_info())?;
+            let info = parser.parse_info(relation.get_info());
+            self.delegate.visit_relation(relation.get_id(), members, tags, info)?;
         }
 
         Ok(())
@@ -132,18 +132,20 @@ impl<'a> OsmBlobVisitor<'a> {
             current_uid += uids[i];
             current_user_sid += user_sids[i];
 
-            self.delegate.visit_node(current_id, parser.get_lat(current_lat), parser.get_lon(current_lon))?;
+            let info = EntityInfo {
+                version: versions[i],
+                timestamp: parser.get_time(current_timestamp),
+                changeset: current_changeset,
+                uid: current_uid,
+                user_sid: current_user_sid as u32,
+                // TODO: Check what this actually means and whether default should be true
+                visible: if i < visibility.len() { visibility[i] } else { true },
+            };
 
-            // TODO: Check what this actually means and whether default should be true
-            let visible = if i < visibility.len() { visibility[i] } else { true };
-            self.delegate.visit_info(versions[i], current_timestamp, current_changeset, current_uid, current_user_sid as u32, visible)?;
+            self.delegate.visit_node(current_id, parser.get_lat(current_lat), parser.get_lon(current_lon), info)?;
         }
 
         Ok(())
-    }
-
-    fn visit_info(&mut self, info: &Info) -> Result<(), PbfParseError> {
-        self.delegate.visit_info(info.get_version(), info.get_timestamp(), info.get_changeset(), info.get_uid(), info.get_user_sid(), info.get_visible())
     }
 }
 
@@ -182,6 +184,7 @@ struct OsmBlockParser<'a> {
     origin_latitude: i64,
     origin_longitude: i64,
     granularity: i64,
+    date_granularity: i64,
     strings: Vec<&'a str>,
 }
 
@@ -191,6 +194,7 @@ impl<'a> OsmBlockParser<'a> {
             origin_latitude: block.get_lat_offset(),
             origin_longitude: block.get_lon_offset(),
             granularity: block.get_granularity() as i64,
+            date_granularity: block.get_date_granularity() as i64,
             strings: parse_string_table(block.get_stringtable()),
         }
     }
@@ -201,6 +205,21 @@ impl<'a> OsmBlockParser<'a> {
 
     fn get_lon(&self, lon: i64) -> f64 {
         (self.origin_longitude + lon * self.granularity) as f64 * NANODEGREE_UNIT
+    }
+
+    fn get_time(&self, time: i64) -> i64 {
+        time * self.date_granularity
+    }
+
+    fn parse_info(&self, raw_info: &Info) -> EntityInfo {
+        EntityInfo {
+            version: raw_info.get_version(),
+            timestamp: self.get_time(raw_info.get_timestamp()),
+            changeset: raw_info.get_changeset(),
+            uid: raw_info.get_uid(),
+            user_sid: raw_info.get_user_sid(),
+            visible: raw_info.get_visible(),
+        }
     }
 
     fn parse_tags(&self, keys: &'a [u32], values: &'a [u32]) -> Vec<(String, String)>
@@ -232,6 +251,16 @@ pub struct MemberReference {
     pub id: i64,
     pub entity_type: OsmEntityType,
     pub role_sid: i32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct EntityInfo {
+    pub version: i32,
+    pub timestamp: i64,
+    pub changeset: i64,
+    pub uid: i32,
+    pub user_sid: u32,
+    pub visible: bool,
 }
 
 #[derive(Debug, Copy, Clone)]

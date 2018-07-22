@@ -1,6 +1,6 @@
 use ::PbfParseError;
 use blob::Blob;
-use osm::{MemberReference, NodeReference};
+use osm::{MemberReference, NodeReference, EntityInfo};
 use protos::osm::HeaderBlock;
 
 pub trait BlobVisitor {
@@ -34,19 +34,15 @@ pub trait OsmVisitor {
         Ok(())
     }
 
-    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64) -> Result<(), PbfParseError> {
+    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64, _info: EntityInfo) -> Result<(), PbfParseError> {
         Ok(())
     }
 
-    fn visit_way(&mut self, _id: i64, _nodes: Vec<NodeReference>, _tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
+    fn visit_way(&mut self, _id: i64, _nodes: Vec<NodeReference>, _tags: Vec<(String, String)>, _info: EntityInfo) -> Result<(), PbfParseError> {
         Ok(())
     }
 
-    fn visit_relation(&mut self, _id: i64, _members: Vec<MemberReference>, _tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
-        Ok(())
-    }
-
-    fn visit_info(&mut self, _version: i32, _timestamp: i64, _changeset: i64, _uid: i32, _user_sid: u32, _visible: bool) -> Result<(), PbfParseError> {
+    fn visit_relation(&mut self, _id: i64, _members: Vec<MemberReference>, _tags: Vec<(String, String)>, _info: EntityInfo) -> Result<(), PbfParseError> {
         Ok(())
     }
 

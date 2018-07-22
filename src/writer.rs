@@ -1,8 +1,8 @@
 use ::PbfParseError;
 use blob::{Blob, BlobType};
-use osm::{MemberReference, NANODEGREE_UNIT, NodeReference};
+use osm::{EntityInfo, MemberReference, NANODEGREE_UNIT, NodeReference};
 use protobuf;
-use protos::osm::{DenseNodes, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
+use protos::osm::{DenseInfo, DenseNodes, Info, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
 use std::collections::HashMap;
 use std::i64;
 use std::io::Write;
@@ -16,32 +16,34 @@ pub struct PrimitiveBlockBuilder {
     ways: Vec<WayEntity>,
     relations: Vec<RelationEntity>,
     completed_blocks: Vec<PrimitiveBlock>,
+    write_metadata: bool,
 }
 
 impl PrimitiveBlockBuilder {
-    fn new() -> PrimitiveBlockBuilder {
+    fn new(write_metadata: bool) -> PrimitiveBlockBuilder {
         PrimitiveBlockBuilder {
             nodes: Vec::new(),
             ways: Vec::new(),
             relations: Vec::new(),
             completed_blocks: Vec::new(),
+            write_metadata,
         }
     }
 
-    fn append_node(&mut self, id: i64, latitude: f64, longitude: f64) {
+    fn append_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) {
         let lat_unit = (latitude / NANODEGREE_UNIT).floor() as i64;
         let lon_unit = (longitude / NANODEGREE_UNIT).floor() as i64;
-        self.nodes.push(NodeEntity { id, latitude: lat_unit, longitude: lon_unit });
+        self.nodes.push(NodeEntity { id, latitude: lat_unit, longitude: lon_unit, info });
         self.complete_if_needed();
     }
 
-    fn append_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) {
-        self.ways.push(WayEntity { id, nodes, tags });
+    fn append_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, info: EntityInfo) {
+        self.ways.push(WayEntity { id, nodes, tags, info });
         self.complete_if_needed();
     }
 
-    fn append_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>) {
-        self.relations.push(RelationEntity { id, members, tags });
+    fn append_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>, info: EntityInfo) {
+        self.relations.push(RelationEntity { id, members, tags, info });
         self.complete_if_needed();
     }
 
@@ -64,8 +66,8 @@ impl PrimitiveBlockBuilder {
             .collect();
 
         for (k, v) in tags {
-            strings.push_string(k.clone());
-            strings.push_string(v.clone());
+            strings.push_string(k);
+            strings.push_string(v);
         }
 
         let pack_info = build_pack_info(&self.nodes);
@@ -73,19 +75,19 @@ impl PrimitiveBlockBuilder {
         if !self.nodes.is_empty() {
             let mut node_group = PrimitiveGroup::default();
             let nodes = self.nodes.drain(ops::RangeFull).collect();
-            node_group.set_dense(build_dense_nodes(nodes, &pack_info));
+            node_group.set_dense(build_dense_nodes(nodes, &pack_info, self.write_metadata));
             groups.push(node_group);
         }
 
         if !self.ways.is_empty() {
             let mut way_group = PrimitiveGroup::default();
-            way_group.set_ways(protobuf::RepeatedField::from_vec(build_ways(ways, &strings)));
+            way_group.set_ways(protobuf::RepeatedField::from_vec(build_ways(ways, &pack_info, &strings, self.write_metadata)));
             groups.push(way_group);
         }
 
         if !self.relations.is_empty() {
             let mut relation_group = PrimitiveGroup::default();
-            relation_group.set_relations(protobuf::RepeatedField::from_vec(build_relations(relations, &strings)));
+            relation_group.set_relations(protobuf::RepeatedField::from_vec(build_relations(relations, &pack_info, &strings, self.write_metadata)));
             groups.push(relation_group);
         }
 
@@ -94,12 +96,11 @@ impl PrimitiveBlockBuilder {
         block.set_lat_offset(pack_info.lat_offset);
         block.set_lon_offset(pack_info.lon_offset);
         block.set_granularity(pack_info.granularity as i32);
-        block.set_date_granularity(1);
+        block.set_date_granularity(pack_info.date_granularity as i32);
 
         let mut table = StringTable::default();
         table.set_s(protobuf::RepeatedField::from_vec(strings.to_table()));
         block.set_stringtable(table);
-        // TODO: Date granularity
 
         self.completed_blocks.push(block);
     }
@@ -126,7 +127,6 @@ fn build_pack_info(nodes: &Vec<NodeEntity>) -> PackInfo {
     if !nodes.is_empty() {
         let mut lat_offset = i64::MAX;
         let mut lon_offset = i64::MAX;
-        let granularity = 100;
         for node in nodes {
             if node.latitude < lat_offset {
                 lat_offset = node.latitude;
@@ -135,13 +135,13 @@ fn build_pack_info(nodes: &Vec<NodeEntity>) -> PackInfo {
                 lon_offset = node.longitude;
             }
         }
-        PackInfo { lat_offset, lon_offset, granularity }
+        PackInfo { lat_offset, lon_offset, granularity: 100, date_granularity: 1000 }
     } else {
-        PackInfo { lat_offset: 0, lon_offset: 0, granularity: 1 }
+        PackInfo { lat_offset: 0, lon_offset: 0, granularity: 100, date_granularity: 1000 }
     }
 }
 
-fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo) -> DenseNodes {
+fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo, metadata: bool) -> DenseNodes {
     let mut id = Vec::with_capacity(nodes.len());
     let mut lat = Vec::with_capacity(nodes.len());
     let mut lon = Vec::with_capacity(nodes.len());
@@ -150,7 +150,7 @@ fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo) -> DenseNodes
     let mut prev_lat = 0;
     let mut prev_lon = 0;
 
-    for node in nodes {
+    for node in nodes.iter() {
         let local_id = node.id;
         let local_lat = (node.latitude / pack_info.granularity) - pack_info.lat_offset;
         let local_lon = (node.longitude / pack_info.granularity) - pack_info.lon_offset;
@@ -168,11 +168,60 @@ fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo) -> DenseNodes
     dense_nodes.set_id(id);
     dense_nodes.set_lat(lat);
     dense_nodes.set_lon(lon);
-    // TODO: Dense info
+
+    // TODO: Tags
+    dense_nodes.set_denseinfo(build_dense_info(nodes, pack_info, metadata));
+
     dense_nodes
 }
 
-fn build_ways(ways: Vec<WayEntity>, strings: &ReverseStringTable) -> Vec<Way> {
+fn build_dense_info(nodes: Vec<NodeEntity>, pack_info: &PackInfo, metadata: bool) -> DenseInfo {
+    let mut dense_info = DenseInfo::default();
+
+    if metadata {
+        let mut versions = Vec::with_capacity(nodes.len());
+        let mut timestamps = Vec::with_capacity(nodes.len());
+        let mut changesets = Vec::with_capacity(nodes.len());
+        let mut uids = Vec::with_capacity(nodes.len());
+        let mut user_sids = Vec::with_capacity(nodes.len());
+        let mut visible = Vec::with_capacity(nodes.len());
+
+        let mut prev_time = 0;
+        let mut prev_changeset = 0;
+        let mut prev_uid = 0;
+        let mut prev_sid = 0;
+
+        for node in nodes {
+            let time = node.info.timestamp / pack_info.date_granularity;
+            let changeset = node.info.changeset;
+            let uid = node.info.uid;
+            let user_sid = node.info.user_sid as i32;
+
+            versions.push(node.info.version);
+            timestamps.push(time - prev_time);
+            changesets.push(changeset - prev_changeset);
+            uids.push(uid - prev_uid);
+            user_sids.push(user_sid - prev_sid);
+            visible.push(node.info.visible);
+
+            prev_time = time;
+            prev_changeset = changeset;
+            prev_uid = uid;
+            prev_sid = user_sid;
+        }
+
+        dense_info.set_version(versions);
+        dense_info.set_timestamp(timestamps);
+        dense_info.set_changeset(changesets);
+        dense_info.set_uid(uids);
+        dense_info.set_user_sid(user_sids);
+        dense_info.set_visible(visible);
+    }
+
+    dense_info
+}
+
+fn build_ways(ways: Vec<WayEntity>, pack_info: &PackInfo, strings: &ReverseStringTable, metadata: bool) -> Vec<Way> {
     ways.iter()
         .map(|way| {
             let mut out_way = Way::default();
@@ -196,12 +245,14 @@ fn build_ways(ways: Vec<WayEntity>, strings: &ReverseStringTable) -> Vec<Way> {
             }
             out_way.set_refs(refs);
 
+            out_way.set_info(build_info(way.info, pack_info, metadata));
+
             out_way
         })
         .collect()
 }
 
-fn build_relations(relations: Vec<RelationEntity>, strings: &ReverseStringTable) -> Vec<Relation> {
+fn build_relations(relations: Vec<RelationEntity>, pack_info: &PackInfo, strings: &ReverseStringTable, metadata: bool) -> Vec<Relation> {
     relations.iter()
         .map(|relation| {
             let mut out_relation = Relation::default();
@@ -235,9 +286,24 @@ fn build_relations(relations: Vec<RelationEntity>, strings: &ReverseStringTable)
             out_relation.set_roles_sid(roles);
             out_relation.set_types(types);
 
+            out_relation.set_info(build_info(relation.info, pack_info, metadata));
+
             out_relation
         })
         .collect()
+}
+
+fn build_info(info: EntityInfo, pack_info: &PackInfo, metadata: bool) -> Info {
+    let mut out_info = Info::default();
+    if metadata {
+        out_info.set_version(info.version);
+        out_info.set_timestamp(info.timestamp / pack_info.date_granularity);
+        out_info.set_changeset(info.changeset);
+        out_info.set_uid(info.uid);
+        out_info.set_user_sid(info.user_sid);
+        out_info.set_visible(info.visible);
+    }
+    out_info
 }
 
 pub struct OsmWriterVisitor<'a> {
@@ -246,10 +312,10 @@ pub struct OsmWriterVisitor<'a> {
 }
 
 impl<'a> OsmWriterVisitor<'a> {
-    pub fn new(writer: &'a mut Write) -> OsmWriterVisitor<'a> {
+    pub fn new(writer: &'a mut Write, write_metadata: bool) -> OsmWriterVisitor<'a> {
         OsmWriterVisitor {
             writer,
-            builder: PrimitiveBlockBuilder::new(),
+            builder: PrimitiveBlockBuilder::new(write_metadata),
         }
     }
 
@@ -271,18 +337,18 @@ impl<'a> OsmVisitor for OsmWriterVisitor<'a> {
         Ok(())
     }
 
-    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64) -> Result<(), PbfParseError> {
-        self.builder.append_node(id, latitude, longitude);
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) -> Result<(), PbfParseError> {
+        self.builder.append_node(id, latitude, longitude, info);
         Ok(())
     }
 
-    fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
-        self.builder.append_way(id, nodes, tags);
+    fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
+        self.builder.append_way(id, nodes, tags, info);
         Ok(())
     }
 
-    fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>) -> Result<(), PbfParseError> {
-        self.builder.append_relation(id, members, tags);
+    fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
+        self.builder.append_relation(id, members, tags, info);
         Ok(())
     }
 
@@ -297,24 +363,28 @@ struct NodeEntity {
     id: i64,
     latitude: i64,
     longitude: i64,
+    info: EntityInfo,
 }
 
 struct WayEntity {
     id: i64,
     nodes: Vec<NodeReference>,
     tags: Vec<(String, String)>,
+    info: EntityInfo,
 }
 
 struct RelationEntity {
     id: i64,
     members: Vec<MemberReference>,
     tags: Vec<(String, String)>,
+    info: EntityInfo,
 }
 
 struct PackInfo {
     lat_offset: i64,
     lon_offset: i64,
     granularity: i64,
+    date_granularity: i64,
 }
 
 struct ReverseStringTable {
@@ -328,11 +398,6 @@ impl ReverseStringTable {
             strings: Vec::new(),
             reverse_strings: HashMap::new(),
         }
-    }
-
-    fn clear(&mut self) {
-        self.strings.clear();
-        self.reverse_strings.clear();
     }
 
     fn push_string(&mut self, string: String) {
