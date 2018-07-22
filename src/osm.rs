@@ -53,8 +53,9 @@ impl<'a> OsmBlobVisitor<'a> {
         for node in nodes {
             let latitude = parser.get_lat(node.get_lat());
             let longitude = parser.get_lon(node.get_lon());
+            let tags = parser.parse_tags(node.get_keys(), node.get_vals());
             let info = parser.parse_info(node.get_info());
-            self.delegate.visit_node(node.get_id(), latitude, longitude, info)?;
+            self.delegate.visit_node(node.get_id(), latitude, longitude, tags, info)?;
         }
         Ok(())
     }
@@ -115,6 +116,9 @@ impl<'a> OsmBlobVisitor<'a> {
         let ids = dense.get_id();
         let lats = dense.get_lat();
         let lons = dense.get_lon();
+        let raw_tags = dense.get_keys_vals();
+
+        let mut raw_tag_index = 0;
 
         let versions = info.get_version();
         let timestamps = info.get_timestamp();
@@ -132,6 +136,22 @@ impl<'a> OsmBlobVisitor<'a> {
             current_uid += uids[i];
             current_user_sid += user_sids[i];
 
+            let mut tags: Vec<(String, String)> = Vec::new();
+            while raw_tag_index < raw_tags.len() {
+                if raw_tags[raw_tag_index] == 0 {
+                    raw_tag_index += 1;
+                    break;
+                }
+                // If we haven't reached the end of this node's tags we should always have a key and value available
+                if raw_tag_index + 2 > raw_tags.len() {
+                    return Err(PbfParseError::MalformedData);
+                }
+                let key_id = raw_tags[raw_tag_index];
+                let val_id = raw_tags[raw_tag_index + 1];
+                tags.push((parser.get_string(key_id), parser.get_string(val_id)));
+                raw_tag_index += 2;
+            }
+
             let info = EntityInfo {
                 version: versions[i],
                 timestamp: parser.get_time(current_timestamp),
@@ -142,7 +162,7 @@ impl<'a> OsmBlobVisitor<'a> {
                 visible: if i < visibility.len() { visibility[i] } else { true },
             };
 
-            self.delegate.visit_node(current_id, parser.get_lat(current_lat), parser.get_lon(current_lon), info)?;
+            self.delegate.visit_node(current_id, parser.get_lat(current_lat), parser.get_lon(current_lon), tags, info)?;
         }
 
         Ok(())
@@ -218,18 +238,21 @@ impl<'a> OsmBlockParser<'a> {
             changeset: raw_info.get_changeset(),
             uid: raw_info.get_uid(),
             user_sid: raw_info.get_user_sid(),
-            visible: raw_info.get_visible(),
+            visible: if raw_info.has_visible() { raw_info.get_visible() } else { true },
         }
     }
 
-    fn parse_tags(&self, keys: &'a [u32], values: &'a [u32]) -> Vec<(String, String)>
-    {
+    fn parse_tags(&self, keys: &'a [u32], values: &'a [u32]) -> Vec<(String, String)> {
         keys.iter().zip(values)
             .map(|(key, value)| (
                 self.strings[*key as usize].to_string(),
                 self.strings[*value as usize].to_string()
             ))
             .collect()
+    }
+
+    fn get_string(&self, id: i32) -> String {
+        self.strings[id as usize].to_string()
     }
 }
 

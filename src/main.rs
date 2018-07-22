@@ -54,10 +54,14 @@ impl NodeCollectionVisitor {
     }
 }
 
+fn accepts_tags(tags: &Vec<(String, String)>) -> bool {
+    tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline")
+}
+
 // TODO: Relation members?
 impl OsmVisitor for NodeCollectionVisitor {
     fn visit_way(&mut self, _id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, _info: EntityInfo) -> Result<(), PbfParseError> {
-        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+        if accepts_tags(&tags) {
             for node in nodes {
                 self.nodes.insert(node.id);
             }
@@ -80,16 +84,16 @@ impl<'a> OsmVisitor for CoastlineVisitor<'a> {
         self.parent.end_block()
     }
 
-    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) -> Result<(), PbfParseError> {
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
         if self.nodes.contains(&id) {
-            self.parent.visit_node(id, latitude, longitude, info)
+            self.parent.visit_node(id, latitude, longitude, tags, info)
         } else {
             Ok(())
         }
     }
 
     fn visit_way(&mut self, id: i64, nodes: Vec<NodeReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
-        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+        if accepts_tags(&tags) {
             self.parent.visit_way(id, nodes, tags, info)
         } else {
             Ok(())
@@ -97,7 +101,7 @@ impl<'a> OsmVisitor for CoastlineVisitor<'a> {
     }
 
     fn visit_relation(&mut self, id: i64, members: Vec<MemberReference>, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
-        if tags.iter().any(|(k, v)| *k == "natural" && *v == "coastline") {
+        if accepts_tags(&tags) {
             self.parent.visit_relation(id, members, tags, info)
         } else {
             Ok(())
@@ -138,6 +142,7 @@ pub enum PbfParseError {
     InvalidMessage(protobuf::ProtobufError),
     InvalidBlobFormat,
     InvalidBlobType,
+    MalformedData,
 }
 
 impl From<std::io::Error> for PbfParseError {

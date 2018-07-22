@@ -2,7 +2,7 @@ use ::PbfParseError;
 use blob::{Blob, BlobType};
 use osm::{EntityInfo, MemberReference, NANODEGREE_UNIT, NodeReference};
 use protobuf;
-use protos::osm::{DenseInfo, HeaderBlock, DenseNodes, Info, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
+use protos::osm::{DenseInfo, DenseNodes, HeaderBlock, Info, PrimitiveBlock, PrimitiveGroup, Relation, StringTable, Way};
 use std::collections::HashMap;
 use std::i64;
 use std::io::Write;
@@ -30,10 +30,10 @@ impl PrimitiveBlockBuilder {
         }
     }
 
-    fn append_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) {
+    fn append_node(&mut self, id: i64, latitude: f64, longitude: f64, tags: Vec<(String, String)>, info: EntityInfo) {
         let lat_unit = (latitude / NANODEGREE_UNIT).floor() as i64;
         let lon_unit = (longitude / NANODEGREE_UNIT).floor() as i64;
-        self.nodes.push(NodeEntity { id, latitude: lat_unit, longitude: lon_unit, info });
+        self.nodes.push(NodeEntity { id, latitude: lat_unit, longitude: lon_unit, tags, info });
         self.complete_if_needed();
     }
 
@@ -64,6 +64,7 @@ impl PrimitiveBlockBuilder {
 
         let tags: Vec<(String, String)> = ways.iter().flat_map(|w| w.tags.clone())
             .chain(relations.iter().flat_map(|r| r.tags.clone()))
+            .chain(nodes.iter().flat_map(|n| n.tags.clone()))
             .collect();
 
         for (k, v) in tags {
@@ -75,7 +76,7 @@ impl PrimitiveBlockBuilder {
 
         if !nodes.is_empty() {
             let mut node_group = PrimitiveGroup::default();
-            node_group.set_dense(build_dense_nodes(nodes, &pack_info, self.write_metadata));
+            node_group.set_dense(build_dense_nodes(nodes, &pack_info, &strings, self.write_metadata));
             groups.push(node_group);
         }
 
@@ -141,10 +142,13 @@ fn build_pack_info(nodes: &Vec<NodeEntity>) -> PackInfo {
     }
 }
 
-fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo, metadata: bool) -> DenseNodes {
+fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo, strings: &ReverseStringTable, metadata: bool) -> DenseNodes {
+    let has_tags = nodes.iter().any(|n| !n.tags.is_empty());
+
     let mut id = Vec::with_capacity(nodes.len());
     let mut lat = Vec::with_capacity(nodes.len());
     let mut lon = Vec::with_capacity(nodes.len());
+    let mut tags = Vec::new();
 
     let mut prev_id = 0;
     let mut prev_lat = 0;
@@ -158,6 +162,14 @@ fn build_dense_nodes(nodes: Vec<NodeEntity>, pack_info: &PackInfo, metadata: boo
         id.push(local_id - prev_id);
         lat.push(local_lat - prev_lat);
         lon.push(local_lon - prev_lon);
+
+        if has_tags {
+            for (k, v) in node.tags.iter() {
+                tags.push(strings.lookup_string(&k).unwrap());
+                tags.push(strings.lookup_string(&v).unwrap());
+            }
+            tags.push(0);
+        }
 
         prev_id = local_id;
         prev_lat = local_lat;
@@ -337,8 +349,8 @@ impl<'a> OsmVisitor for OsmWriterVisitor<'a> {
         Ok(())
     }
 
-    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, info: EntityInfo) -> Result<(), PbfParseError> {
-        self.builder.append_node(id, latitude, longitude, info);
+    fn visit_node(&mut self, id: i64, latitude: f64, longitude: f64, tags: Vec<(String, String)>, info: EntityInfo) -> Result<(), PbfParseError> {
+        self.builder.append_node(id, latitude, longitude, tags, info);
         Ok(())
     }
 
@@ -373,6 +385,7 @@ struct NodeEntity {
     id: i64,
     latitude: i64,
     longitude: i64,
+    tags: Vec<(String, String)>,
     info: EntityInfo,
 }
 

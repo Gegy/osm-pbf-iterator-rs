@@ -34,7 +34,7 @@ pub trait OsmVisitor {
         Ok(())
     }
 
-    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64, _info: EntityInfo) -> Result<(), PbfParseError> {
+    fn visit_node(&mut self, _id: i64, _latitude: f64, _longitude: f64, _tags: Vec<(String, String)>, _info: EntityInfo) -> Result<(), PbfParseError> {
         Ok(())
     }
 
